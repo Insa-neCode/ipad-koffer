@@ -1,0 +1,2087 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iPad-Koffer Medienkontrolle</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- QRCode.js via CDN for crisp, reliable QR codes on all 18 case sheets -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+
+    /* QR Code container styling */
+    .qr-box img,
+    .qr-box canvas {
+      display: block !important;
+      margin: 0 auto;
+    }
+
+    /* Print Styles: Supports both Mode A (Status Overview Table) & Mode B (18 DIN A4 Case Lid Sheets) */
+    @media print {
+      body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      @page {
+        size: A4 portrait;
+        margin: 12mm;
+      }
+
+      /* Print Mode: Overview Table */
+      body.print-mode-overview #print-overview-section {
+        display: block !important;
+      }
+      body.print-mode-overview #print-covers-section {
+        display: none !important;
+      }
+
+      /* Print Mode: 18 Kofferdeckel A4 Sheets */
+      body.print-mode-covers #print-covers-section {
+        display: block !important;
+      }
+      body.print-mode-covers #print-overview-section {
+        display: none !important;
+      }
+
+      .a4-cover-sheet {
+        page-break-after: always;
+        break-after: page;
+        height: 268mm;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 2px solid #0f172a;
+        border-radius: 14px;
+        padding: 10mm;
+      }
+      .a4-cover-sheet:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+
+      table.print-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      table.print-table th,
+      table.print-table td {
+        border: 1px solid #cbd5e1;
+        padding: 6px 8px;
+        text-align: left;
+        font-size: 9pt;
+        vertical-align: top;
+      }
+      table.print-table th {
+        background-color: #f1f5f9 !important;
+        font-weight: 700;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col print-mode-overview">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 left-4 sm:left-auto sm:w-96 z-50 flex flex-col gap-2 pointer-events-none no-print"></div>
+
+  <!-- Top Navigation Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 no-print">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-3 min-w-0">
+        <button onclick="showAllCasesView()" class="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm hover:bg-amber-600 transition" title="Zur Startübersicht">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <rect x="4" y="2" width="16" height="20" rx="2.5" ry="2.5"></rect>
+            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+          </svg>
+        </button>
+        <div class="truncate">
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-bold text-slate-900 leading-tight truncate">iPad-Koffer Kontrolle</h1>
+            <span id="sync-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+              <span id="sync-dot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+              <span id="sync-label">Lokal</span>
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 truncate">18 Koffer · Live-Status, Farb-Codes &amp; Mängelmelder</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <!-- Sync Refresh Button (visible when Supabase configured) -->
+        <button id="manual-sync-btn" onclick="syncFromSupabase(true)" class="hidden p-2 rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 transition" title="Live-Daten aus Cloud neu laden">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+
+        <!-- 18 QR-Code Cover Sheets Button -->
+        <button onclick="openQrCoversModal()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] transition" title="18 DIN-A4-Aushänge mit QR-Codes drucken">
+          <svg class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span class="hidden md:inline">18 Kofferdeckel-Aushänge (QR-Codes)</span>
+          <span class="md:hidden">QR-Aushänge</span>
+        </button>
+
+        <!-- Settings / Setup Button -->
+        <button onclick="openSettingsModal()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 active:scale-[0.98] transition" title="Zuständigkeiten, Supabase & Power Automate">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          </svg>
+          <span class="hidden sm:inline">Zuständigkeiten &amp; Setup</span>
+          <span class="sm:hidden">Setup</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content (Screen View) -->
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-6 no-print">
+
+    <!-- Deep-Link Focus Banner (Shown when opened via ?koffer=X) -->
+    <div id="deeplink-banner" class="hidden mb-4 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2 text-xs sm:text-sm text-amber-950 font-medium">
+        <span class="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 font-bold text-xs">QR-Direktmodus</span>
+        <span id="deeplink-banner-text">Direktansicht für Koffer 1 geöffnet.</span>
+      </div>
+      <button onclick="showAllCasesView()" class="px-3 py-1.5 rounded-xl bg-white border border-amber-300 hover:bg-amber-100 text-xs font-semibold text-amber-950 transition">
+        Alle 18 Koffer anzeigen
+      </button>
+    </div>
+
+    <!-- Status Summary Cards -->
+    <section aria-label="Statusübersicht" class="grid grid-cols-3 gap-2.5 sm:gap-4 mb-5">
+      <button onclick="setFilter('green')" class="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-left hover:border-emerald-300 transition shadow-2xs">
+        <div class="flex items-center justify-between mb-1">
+          <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-emerald-700">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            Alles OK
+          </span>
+        </div>
+        <div id="count-green" class="text-2xl sm:text-3xl font-bold text-slate-900">0</div>
+        <p class="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">Vollständig &amp; am Strom</p>
+      </button>
+
+      <button onclick="setFilter('yellow')" class="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-left hover:border-amber-300 transition shadow-2xs">
+        <div class="flex items-center justify-between mb-1">
+          <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-amber-700">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            Unordentlich
+          </span>
+        </div>
+        <div id="count-yellow" class="text-2xl sm:text-3xl font-bold text-slate-900">0</div>
+        <p class="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">Kabel / Ordnung prüfen</p>
+      </button>
+
+      <button onclick="setFilter('red')" class="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-left hover:border-rose-300 transition shadow-2xs">
+        <div class="flex items-center justify-between mb-1">
+          <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-rose-700">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            Mangel / Fehlt
+          </span>
+        </div>
+        <div id="count-red" class="text-2xl sm:text-3xl font-bold text-slate-900">0</div>
+        <p class="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">Gerät fehlt / Defekt</p>
+      </button>
+    </section>
+
+    <!-- Search & Filter Controls -->
+    <section class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5">
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+        <button onclick="setFilter('all')" data-filter="all" class="filter-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-900 text-white whitespace-nowrap transition">
+          Alle (18)
+        </button>
+        <button onclick="setFilter('issues')" data-filter="issues" class="filter-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 whitespace-nowrap transition">
+          Offene Mängel / Gelb &amp; Rot
+        </button>
+        <button onclick="setFilter('green')" data-filter="green" class="filter-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 whitespace-nowrap transition">
+          Nur Grün
+        </button>
+      </div>
+
+      <div class="relative sm:w-72">
+        <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input
+          type="text"
+          id="search-input"
+          oninput="renderGrid()"
+          placeholder="Koffer, Raum, Farbe oder Pate..."
+          class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+        />
+      </div>
+    </section>
+
+    <!-- Koffer Grid -->
+    <section id="koffer-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4" aria-label="Liste der iPad-Koffer">
+      <!-- Rendered dynamically via JS -->
+    </section>
+
+    <!-- Empty Search State -->
+    <div id="empty-state" class="hidden bg-white border border-slate-200 rounded-2xl p-10 text-center my-4">
+      <p class="text-slate-600 font-medium">Kein iPad-Koffer passt zu dieser Auswahl.</p>
+      <button onclick="resetFilters()" class="mt-3 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm font-medium text-slate-800 transition">
+        Filter zurücksetzen
+      </button>
+    </div>
+
+    <!-- Subtle Print / Export Footer -->
+    <footer class="mt-10 pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+      <div>
+        QR-Direktlink-Format: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">?koffer=1</code> bis <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">?koffer=18</code> · Ideal als Registerkarte in Microsoft Teams.
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="printOverviewA4()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition font-medium">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          PDF / Statusübersicht drucken (DIN A4)
+        </button>
+      </div>
+    </footer>
+  </main>
+
+  <!-- =====================================================================
+       PRINT SECTION A: DIN A4 OVERVIEW TABLE
+  ====================================================================== -->
+  <div id="print-overview-section" class="hidden">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #0f172a; padding-bottom:8px;">
+      <div>
+        <h1 style="font-size:15pt; font-weight:800; margin:0;">iPad-Koffer Medienkontrolle – Bestands- &amp; Statusbericht</h1>
+        <p style="font-size:9pt; color:#475569; margin:2px 0 0 0;">Übersicht aller 18 Koffer, Standorte, Farb-Codes, Patenschaften und offenen Mängel</p>
+      </div>
+      <div id="print-date" style="font-size:9pt; color:#334155;"></div>
+    </div>
+    <table class="print-table">
+      <thead>
+        <tr>
+          <th style="width:13%;">Koffer</th>
+          <th style="width:11%;">Farbcode</th>
+          <th style="width:22%;">Raum &amp; Standort</th>
+          <th style="width:17%;">Koffer-Pate</th>
+          <th style="width:12%;">Status</th>
+          <th style="width:25%;">Offene Mängel / Letzter Check</th>
+        </tr>
+      </thead>
+      <tbody id="print-table-body"></tbody>
+    </table>
+  </div>
+
+  <!-- =====================================================================
+       PRINT SECTION B: 18 DIN A4 CASE LID SHEETS (WITH QR CODES)
+  ====================================================================== -->
+  <div id="print-covers-section" class="hidden">
+    <!-- Rendered dynamically before printing 18 cover sheets -->
+  </div>
+
+  <!-- =====================================================================
+       MODAL 1: CASE DETAIL & CHECK-IN MODAL
+  ====================================================================== -->
+  <div id="case-modal" class="fixed inset-0 z-40 hidden bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 no-print" role="dialog" aria-modal="true">
+    <div class="bg-white w-full sm:max-w-2xl max-h-[93vh] sm:max-h-[90vh] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3 bg-slate-50/80">
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span id="modal-koffer-badge" class="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-900 text-white">Koffer 1</span>
+            <span id="modal-color-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+              <span class="w-2 h-2 rounded-full bg-blue-600"></span>
+              Farbcode: Blau
+            </span>
+            <span id="modal-room-text" class="text-xs font-semibold text-slate-600">Raum 4.115</span>
+            <span id="modal-status-pill" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Alles OK</span>
+          </div>
+          <h2 id="modal-location-title" class="text-lg sm:text-xl font-bold text-slate-900 mt-1.5">Teamstation 1</h2>
+          <p id="modal-responsible-line" class="text-xs text-slate-500 mt-0.5">Koffer-Pate: Noch nicht hinterlegt</p>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button onclick="showAllCasesView()" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition" title="Alle 18 Koffer anzeigen">
+            <span>Alle 18</span>
+          </button>
+          <button onclick="copyCaseQrLink()" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition" title="QR-Direktlink kopieren">
+            <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            <span>Link</span>
+          </button>
+          <button onclick="closeCaseModal()" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" aria-label="Schließen">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Scrollable Body -->
+      <div class="p-5 overflow-y-auto space-y-5">
+
+        <!-- 1. DUPLICATE PREVENTION BOX: Open Issues -->
+        <div id="open-issues-box" class="hidden rounded-2xl border-2 border-rose-300 bg-rose-50/90 p-4 shadow-2xs">
+          <div class="flex items-center gap-2 text-rose-900 font-bold text-sm">
+            <svg class="w-5 h-5 text-rose-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <span>Bereits gemeldete offene Mängel (Bitte nicht doppelt melden!)</span>
+          </div>
+          <ul id="open-issues-list" class="space-y-2 mt-2.5">
+            <!-- Rendered via JS -->
+          </ul>
+        </div>
+
+        <!-- 2. SOLL-ZUSTAND & REFERENCE PHOTO (Collapsible) -->
+        <details class="group bg-slate-50 border border-slate-200 rounded-2xl">
+          <summary class="px-4 py-3 text-xs sm:text-sm font-semibold text-slate-800 cursor-pointer flex items-center justify-between select-none">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              Soll-Bestand, Farbcode &amp; Deckelfoto anzeigen
+            </span>
+            <svg class="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </summary>
+          <div class="px-4 pb-4 pt-1 border-t border-slate-200/70 text-xs text-slate-600 space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div class="bg-white p-3 rounded-xl border border-slate-200">
+                <div class="font-semibold text-slate-800 mb-1">Checkpunkte beim Einräumen:</div>
+                <ul class="list-disc pl-4 space-y-1 text-slate-600">
+                  <li id="soll-device-range">Alle 16 iPads vorhanden (K01-01 bis K01-16)</li>
+                  <li id="soll-color-check">Alle Hüllen tragen den Farbcode dieses Koffers</li>
+                  <li>Ladekabel fest eingesteckt &amp; Lade-LEDs aktiv</li>
+                  <li>Untis-Buchung für diese Stunde eingetragen</li>
+                </ul>
+              </div>
+              <div class="bg-white p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
+                <div class="font-semibold text-slate-800 mb-1.5">Referenzfoto (Soll-Ordnung):</div>
+                <div id="soll-photo-preview" class="relative rounded-lg overflow-hidden bg-slate-100 border border-dashed border-slate-300 h-28 flex items-center justify-center text-center p-2">
+                  <span class="text-[11px] text-slate-400">Noch kein Soll-Foto hinterlegt</span>
+                </div>
+                <label class="mt-2 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium cursor-pointer transition text-[11px]">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                  <span>Soll-Foto hochladen</span>
+                  <input type="file" accept="image/*" onchange="handlePhotoUpload(event)" class="hidden" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 3. QUICK CHECK FORM -->
+        <form id="check-form" onsubmit="submitCheckForm(event)" class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-900">Schnell-Check / Neue Meldung eintragen</h3>
+            <span class="text-[11px] text-slate-400">Dauert ca. 10 Sek.</span>
+          </div>
+
+          <!-- Timing Selection -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1.5">1. Zeitpunkt der Kontrolle</label>
+            <div class="grid grid-cols-3 gap-2">
+              <label class="cursor-pointer">
+                <input type="radio" name="timing" value="Vor der Nutzung" class="peer sr-only" checked />
+                <div class="text-center py-2.5 px-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 transition">
+                  Vor Nutzung
+                </div>
+              </label>
+              <label class="cursor-pointer">
+                <input type="radio" name="timing" value="Nach der Nutzung" class="peer sr-only" />
+                <div class="text-center py-2.5 px-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 transition">
+                  Nach Nutzung
+                </div>
+              </label>
+              <label class="cursor-pointer">
+                <input type="radio" name="timing" value="Paten-Check / Reset" class="peer sr-only" />
+                <div class="text-center py-2.5 px-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 transition">
+                  Paten-Check
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Status Selection Cards -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1.5">2. Zustand des Koffers</label>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <!-- Green -->
+              <label class="cursor-pointer">
+                <input type="radio" name="status" value="green" onchange="onStatusRadioChange('green')" class="peer sr-only" checked />
+                <div class="p-3 rounded-xl border-2 border-slate-200 bg-white peer-checked:border-emerald-500 peer-checked:bg-emerald-50/70 transition h-full">
+                  <div class="flex items-center gap-2 font-bold text-xs text-emerald-800">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                    Alles OK (Grün)
+                  </div>
+                  <p class="text-[11px] text-slate-600 mt-1">Ordentlich, vollständig &amp; am Strom.</p>
+                </div>
+              </label>
+
+              <!-- Yellow -->
+              <label class="cursor-pointer">
+                <input type="radio" name="status" value="yellow" onchange="onStatusRadioChange('yellow')" class="peer sr-only" />
+                <div class="p-3 rounded-xl border-2 border-slate-200 bg-white peer-checked:border-amber-500 peer-checked:bg-amber-50/70 transition h-full">
+                  <div class="flex items-center gap-2 font-bold text-xs text-amber-800">
+                    <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                    Unordentlich (Gelb)
+                  </div>
+                  <p class="text-[11px] text-slate-600 mt-1">Geräte da, aber Kabel nicht eingesteckt / Chaos.</p>
+                </div>
+              </label>
+
+              <!-- Red -->
+              <label class="cursor-pointer">
+                <input type="radio" name="status" value="red" onchange="onStatusRadioChange('red')" class="peer sr-only" />
+                <div class="p-3 rounded-xl border-2 border-slate-200 bg-white peer-checked:border-rose-500 peer-checked:bg-rose-50/70 transition h-full">
+                  <div class="flex items-center gap-2 font-bold text-xs text-rose-800">
+                    <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+                    Mangel / Fehlt (Rot)
+                  </div>
+                  <p class="text-[11px] text-slate-600 mt-1">iPad fehlt, fremdes iPad drin oder Kabel defekt.</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Issue Details Section -->
+          <div id="issue-details-wrapper" class="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3 transition">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1.5">Schnellbausteine (antippen):</label>
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" onclick="appendQuickChip('iPad fehlt (Nr.: ). ')" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs text-slate-700 transition">+ iPad fehlt</button>
+                <button type="button" onclick="appendQuickChip('Fremdes iPad einsortiert (Nr.: ). ')" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs text-slate-700 transition">+ Fremdes iPad</button>
+                <button type="button" onclick="appendQuickChip('Kabel nicht eingesteckt. ')" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-amber-300 hover:bg-amber-50 text-xs text-slate-700 transition">+ Nicht eingesteckt</button>
+                <button type="button" onclick="appendQuickChip('Ladekabel defekt (Platz: ). ')" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs text-slate-700 transition">+ Kabel defekt</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="sm:col-span-2">
+                <label for="issue-note" class="block text-xs font-semibold text-slate-700 mb-1">Fehlende iPad-Nummern / Beschreibung</label>
+                <input
+                  type="text"
+                  id="issue-note"
+                  placeholder="z. B. iPad K03-04 fehlt oder Kabel Platz 7 defekt"
+                  class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label for="reporter-name" class="block text-xs font-semibold text-slate-700 mb-1">Kürzel / Name (opt.)</label>
+                <input
+                  type="text"
+                  id="reporter-name"
+                  placeholder="z. B. MUE"
+                  maxlength="24"
+                  class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            <!-- Automation Info Banner for Yellow/Red -->
+            <div id="automation-notice" class="hidden flex items-start gap-2 text-xs bg-amber-100/80 text-amber-900 px-3 py-2 rounded-xl">
+              <svg class="w-4 h-4 text-amber-700 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
+              <span id="automation-notice-text">Beim Speichern wird der Koffer-Pate automatisch benachrichtigt.</span>
+            </div>
+          </div>
+
+          <!-- Submit Row -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-1">
+            <button type="button" onclick="closeCaseModal()" class="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+              Abbrechen
+            </button>
+            <button type="submit" id="submit-check-btn" class="px-5 py-3 rounded-xl text-sm font-semibold bg-slate-900 hover:bg-slate-800 text-white shadow-sm active:scale-[0.99] transition flex items-center justify-center gap-2">
+              <span>Check speichern</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Post-Save Mailto Fallback Banner -->
+        <div id="mailto-action-box" class="hidden rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-2.5">
+          <div>
+            <h4 class="text-sm font-bold text-amber-950">Meldung gespeichert! Koffer-Pate direkt informieren:</h4>
+            <p id="mailto-recipient-desc" class="text-xs text-amber-800 mt-0.5">Klicke unten, um die vorausgefüllte E-Mail in Outlook/Mail zu öffnen.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <a id="mailto-trigger-link" href="#" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs sm:text-sm font-semibold shadow-2xs transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+              <span>E-Mail an Koffer-Paten öffnen</span>
+            </a>
+            <button type="button" onclick="closeCaseModal()" class="px-3 py-2.5 rounded-xl text-xs font-medium text-amber-900 hover:bg-amber-100 transition">
+              Fertig &amp; Schließen
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. RECENT CHECK LOG HISTORY -->
+        <div class="pt-2 border-t border-slate-200">
+          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Protokoll / Archiv für diesen Koffer</h4>
+          <ul id="case-history-list" class="space-y-2 text-xs">
+            <!-- Rendered via JS -->
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       MODAL 2: 18 QR-CODE COVER SHEETS PREVIEW & PRINT MODAL
+  ====================================================================== -->
+  <div id="qr-covers-modal" class="fixed inset-0 z-40 hidden bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 no-print" role="dialog" aria-modal="true">
+    <div class="bg-white w-full sm:max-w-4xl max-h-[93vh] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">18 Kofferdeckel-Aushänge mit QR-Codes (DIN A4)</h2>
+          <p class="text-xs text-slate-500">Druckfertige Blätter zum Laminieren &amp; Einkleben in die 18 Kofferdeckel (inkl. Soll-Foto-Feld &amp; Spielregeln).</p>
+        </div>
+        <button onclick="closeQrCoversModal()" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4">
+        <!-- Base URL Info & Quick Edit -->
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+          <div class="flex-1">
+            <label for="qr-base-url-quick" class="block text-xs font-bold text-amber-950 mb-1">Ziel-URL der Webseite für die QR-Codes:</label>
+            <input
+              type="url"
+              id="qr-base-url-quick"
+              oninput="updateQrPreviewList()"
+              class="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+            />
+            <p class="text-[11px] text-amber-800 mt-1">
+              Jeder QR-Code erhält automatisch <code class="bg-amber-100 px-1 rounded">?koffer=1</code> bis <code class="bg-amber-100 px-1 rounded">?koffer=18</code>. Falls du die Seite auf GitHub Pages hostest, trage hier den GitHub-Pages-Link ein.
+            </p>
+          </div>
+          <button onclick="printCoverSheetsA4()" class="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold shadow-sm transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            <span>Alle 18 DIN-A4-Blätter drucken / als PDF speichern</span>
+          </button>
+        </div>
+
+        <!-- Preview Grid of all 18 QR Codes -->
+        <div id="qr-preview-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+          <!-- Rendered dynamically via JS -->
+        </div>
+      </div>
+
+      <div class="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+        <span class="text-xs text-slate-500">Tipp: Im Druckdialog „Hintergrundgrafiken“ aktivieren, damit die Farbcodes gedruckt werden.</span>
+        <button onclick="closeQrCoversModal()" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 transition">
+          Schließen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       MODAL 3: SETTINGS & MASTER DATA (STAMMDATEN, SUPABASE & WEBHOOK)
+  ====================================================================== -->
+  <div id="settings-modal" class="fixed inset-0 z-40 hidden bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 no-print" role="dialog" aria-modal="true">
+    <div class="bg-white w-full sm:max-w-5xl max-h-[93vh] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Zuständigkeiten, Supabase-Cloud &amp; Automatisierung</h2>
+          <p class="text-xs text-slate-500">Verwalte die 18 Koffer-Patenschaften, Farb-Codes sowie die Echtzeit-Synchronisation für Teams &amp; Smartphones.</p>
+        </div>
+        <button onclick="closeSettingsModal()" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-6">
+        
+        <!-- 1. SUPABASE REALTIME SYNC CONFIGURATION -->
+        <div class="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 space-y-3">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-emerald-950 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                1. Echtzeit-Datenbank (Supabase REST API – damit alle denselben Stand sehen)
+              </h3>
+              <p class="text-xs text-emerald-900/80 mt-0.5">
+                Trage deine kostenlose Supabase Project URL und den Anon Key ein. Sobald gespeichert, werden alle Meldungen und Paten-Änderungen live über die Tabelle <code class="bg-emerald-100 px-1 rounded">ipad_koffer</code> zwischen allen Smartphones und Microsoft Teams synchronisiert.
+              </p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="supabase-url-input" class="block text-xs font-semibold text-slate-700 mb-1">Supabase Project URL</label>
+              <input
+                type="url"
+                id="supabase-url-input"
+                placeholder="https://xyzcompany.supabase.co"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label for="supabase-key-input" class="block text-xs font-semibold text-slate-700 mb-1">Supabase Anon Public Key</label>
+              <input
+                type="text"
+                id="supabase-key-input"
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <!-- 30-Second SQL Setup Accordion -->
+          <details class="bg-white border border-emerald-200/80 rounded-xl">
+            <summary class="px-3.5 py-2.5 text-xs font-semibold text-emerald-900 cursor-pointer flex items-center justify-between select-none">
+              <span>SQL-Befehl für Supabase anzeigen (Tabelle &amp; RLS in 30 Sek. anlegen)</span>
+              <span class="text-[11px] text-emerald-700 underline">Aufklappen</span>
+            </summary>
+            <div class="px-3.5 pb-3.5 pt-2 border-t border-emerald-100 space-y-2">
+              <p class="text-[11px] text-slate-600">
+                Kopiere diesen SQL-Befehl in Supabase unter <strong>SQL Editor → New Query</strong> und klicke auf <strong>Run</strong>:
+              </p>
+              <pre id="supabase-sql-code" class="bg-slate-900 text-slate-100 p-3 rounded-xl text-[11px] overflow-x-auto leading-relaxed">CREATE TABLE IF NOT EXISTS ipad_koffer (
+  id INTEGER PRIMARY KEY,
+  room TEXT,
+  location TEXT,
+  color_name TEXT,
+  responsible TEXT,
+  email TEXT,
+  device_count INTEGER DEFAULT 16,
+  status TEXT DEFAULT 'green',
+  last_check TIMESTAMPTZ,
+  last_reporter TEXT,
+  open_issues JSONB DEFAULT '[]'::jsonb,
+  history JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE ipad_koffer ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Schulweite Koffer-Kontrolle" ON ipad_koffer
+  FOR ALL USING (true) WITH CHECK (true);</pre>
+              <button type="button" onclick="copySupabaseSql()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition">
+                <span>SQL-Befehl kopieren</span>
+              </button>
+            </div>
+          </details>
+        </div>
+
+        <!-- 2. POWER AUTOMATE & BASE URL -->
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+          <h3 class="text-sm font-bold text-slate-900">2. Power Automate Benachrichtigung &amp; QR-Basis-URL</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label for="webhook-url-input" class="block text-xs font-semibold text-slate-700 mb-1">Power Automate Webhook-URL (opt.)</label>
+              <input
+                type="url"
+                id="webhook-url-input"
+                placeholder="https://prod-xx.westeurope.logic.azure.com/..."
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            <div>
+              <label for="admin-cc-input" class="block text-xs font-semibold text-slate-700 mb-1">Admin / AK Medien CC-Mail (opt.)</label>
+              <input
+                type="email"
+                id="admin-cc-input"
+                placeholder="medien@schule.de"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            <div>
+              <label for="base-url-input" class="block text-xs font-semibold text-slate-700 mb-1">Basis-URL für QR-Codes</label>
+              <input
+                type="url"
+                id="base-url-input"
+                placeholder="https://schule.github.io/ipad-koffer/"
+                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. MASTER DATA TABLE FOR ALL 18 CASES -->
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+            <h3 class="text-sm font-bold text-slate-900">3. Stammdaten, Farb-Codes &amp; Koffer-Patenschaften (1–18)</h3>
+            <span class="text-xs text-slate-500">Offene Standorte (11, 16, 17, 18) &amp; Paten direkt hier pflegen</span>
+          </div>
+          <div class="overflow-x-auto border border-slate-200 rounded-2xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-100 text-slate-700 border-b border-slate-200">
+                  <th class="py-2.5 px-3 font-semibold">Koffer</th>
+                  <th class="py-2.5 px-3 font-semibold">Raum</th>
+                  <th class="py-2.5 px-3 font-semibold">Standort / Teamstation</th>
+                  <th class="py-2.5 px-3 font-semibold">Farb-Code</th>
+                  <th class="py-2.5 px-3 font-semibold">Soll-iPads</th>
+                  <th class="py-2.5 px-3 font-semibold">Koffer-Pate (Name)</th>
+                  <th class="py-2.5 px-3 font-semibold">Paten-E-Mail</th>
+                </tr>
+              </thead>
+              <tbody id="settings-table-body" class="divide-y divide-slate-200 bg-white">
+                <!-- Rendered via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+        <button type="button" onclick="resetDemoData()" class="px-3 py-2 rounded-xl text-xs font-medium text-rose-600 hover:bg-rose-50 transition">
+          Lokale Daten zurücksetzen
+        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-600 hover:bg-slate-200/70 transition">
+            Abbrechen
+          </button>
+          <button type="button" onclick="saveSettings()" class="px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-900 hover:bg-slate-800 text-white transition">
+            Speichern &amp; Synchronisieren
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // COLOR PALETTE FOR VISUAL CASE IDENTIFICATION
+    // =========================================================================
+    const CASE_COLORS = [
+      { name: "Blau",    hex: "#2563eb", badgeBg: "bg-blue-100",    badgeText: "text-blue-800",    dot: "bg-blue-600" },
+      { name: "Grün",    hex: "#16a34a", badgeBg: "bg-emerald-100", badgeText: "text-emerald-800", dot: "bg-emerald-600" },
+      { name: "Rot",     hex: "#dc2626", badgeBg: "bg-rose-100",    badgeText: "text-rose-800",    dot: "bg-rose-600" },
+      { name: "Gelb",    hex: "#eab308", badgeBg: "bg-yellow-100",  badgeText: "text-yellow-900",  dot: "bg-yellow-500" },
+      { name: "Lila",    hex: "#9333ea", badgeBg: "bg-purple-100",  badgeText: "text-purple-800",  dot: "bg-purple-600" },
+      { name: "Orange",  hex: "#ea580c", badgeBg: "bg-orange-100",  badgeText: "text-orange-800",  dot: "bg-orange-600" },
+      { name: "Türkis",  hex: "#0891b2", badgeBg: "bg-cyan-100",    badgeText: "text-cyan-800",    dot: "bg-cyan-600" },
+      { name: "Pink",    hex: "#db2777", badgeBg: "bg-pink-100",    badgeText: "text-pink-800",    dot: "bg-pink-600" },
+      { name: "Braun",   hex: "#78350f", badgeBg: "bg-amber-100",   badgeText: "text-amber-900",   dot: "bg-amber-800" }
+    ];
+
+    function getColorMeta(colorName) {
+      return CASE_COLORS.find(c => c.name === colorName) || CASE_COLORS[0];
+    }
+
+    // =========================================================================
+    // INITIAL MASTER DATA (Exakt aus der WebUntis-Ressourcenliste übernommen)
+    // =========================================================================
+    const INITIAL_CASES = [
+      { id: 1,  room: "4.115", location: "Teamstation 1",           colorName: "Blau",   responsible: "", email: "", deviceCount: 16 },
+      { id: 2,  room: "4.215", location: "Teamstation 2",           colorName: "Grün",   responsible: "", email: "", deviceCount: 16 },
+      { id: 3,  room: "1.109", location: "Teamstation 3",           colorName: "Rot",    responsible: "", email: "", deviceCount: 16 },
+      { id: 4,  room: "7.137", location: "Teamstation 4",           colorName: "Gelb",   responsible: "", email: "", deviceCount: 16 },
+      { id: 5,  room: "7.031", location: "Teamstation 5",           colorName: "Lila",   responsible: "", email: "", deviceCount: 16 },
+      { id: 6,  room: "4.103", location: "Lager D-Turm 1.OG",       colorName: "Orange", responsible: "", email: "", deviceCount: 16 },
+      { id: 7,  room: "6.007", location: "Chemiesammlung",          colorName: "Türkis", responsible: "", email: "", deviceCount: 16 },
+      { id: 8,  room: "2.K25", location: "Kunst",                   colorName: "Pink",   responsible: "", email: "", deviceCount: 16 },
+      { id: 9,  room: "7.151", location: "Kopierraum Neubau 1.OG",  colorName: "Braun",  responsible: "", email: "", deviceCount: 16 },
+      { id: 10, room: "7.013", location: "Teeküche DG",             colorName: "Blau",   responsible: "", email: "", deviceCount: 16 },
+      { id: 11, room: "4.007", location: "Standort offen",          colorName: "Grün",   responsible: "", email: "", deviceCount: 16 },
+      { id: 12, room: "4.203", location: "Lager D-Turm 2.OG",       colorName: "Rot",    responsible: "", email: "", deviceCount: 16 },
+      { id: 13, room: "1.109", location: "Teamstation 3",           colorName: "Gelb",   responsible: "", email: "", deviceCount: 16 },
+      { id: 14, room: "7.115", location: "BOB",                     colorName: "Lila",   responsible: "", email: "", deviceCount: 16 },
+      { id: 15, room: "7.013", location: "Teeküche DG",             colorName: "Orange", responsible: "", email: "", deviceCount: 16 },
+      { id: 16, room: "8.104", location: "Standort offen",          colorName: "Türkis", responsible: "", email: "", deviceCount: 16 },
+      { id: 17, room: "8.004", location: "Standort offen",          colorName: "Pink",   responsible: "", email: "", deviceCount: 16 },
+      { id: 18, room: "3.015", location: "Standort offen",          colorName: "Braun",  responsible: "", email: "", deviceCount: 16 }
+    ];
+
+    const STORAGE_KEY = "ipad_koffer_medienkontrolle_v2";
+
+    let appState = {
+      supabaseUrl: "",
+      supabaseKey: "",
+      webhookUrl: "",
+      adminCc: "",
+      baseUrl: "",
+      cases: []
+    };
+
+    let currentFilter = "all";
+    let activeCaseId = null;
+    let isDeepLinkMode = false;
+
+    // =========================================================================
+    // INITIALIZATION, LOCAL STORAGE & SUPABASE SYNC
+    // =========================================================================
+    async function initApp() {
+      loadState();
+      updateSyncStatusBadge();
+      renderSummary();
+      renderGrid();
+      updatePrintTable();
+
+      // If Supabase is configured, pull latest live state from cloud
+      if (isSupabaseConfigured()) {
+        await syncFromSupabase(false);
+      }
+
+      // Check URL parameter ?koffer=1..18 (QR-Code Deep-Link)
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const kofferParam = parseInt(params.get("koffer"), 10);
+        if (!isNaN(kofferParam) && kofferParam >= 1 && kofferParam <= 18) {
+          isDeepLinkMode = true;
+          const banner = document.getElementById("deeplink-banner");
+          const bannerText = document.getElementById("deeplink-banner-text");
+          const targetCase = appState.cases.find(c => c.id === kofferParam);
+          if (banner && targetCase) {
+            banner.classList.remove("hidden");
+            bannerText.textContent = `Direktansicht per QR-Code: Koffer ${targetCase.id} (${targetCase.location}, Raum ${targetCase.room})`;
+          }
+          openCaseModal(kofferParam);
+        }
+      } catch (e) {
+        console.warn("URL-Parameter konnten nicht gelesen werden:", e);
+      }
+    }
+
+    function getDefaultBaseUrl() {
+      try {
+        return window.location.origin + window.location.pathname;
+      } catch {
+        return "https://schule.de/ipad-koffer";
+      }
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.cases) && parsed.cases.length === 18) {
+            appState = {
+              supabaseUrl: parsed.supabaseUrl || "",
+              supabaseKey: parsed.supabaseKey || "",
+              webhookUrl: parsed.webhookUrl || "",
+              adminCc: parsed.adminCc || "",
+              baseUrl: parsed.baseUrl || getDefaultBaseUrl(),
+              cases: parsed.cases.map((c, idx) => ({
+                ...INITIAL_CASES[idx],
+                ...c,
+                colorName: c.colorName || INITIAL_CASES[idx].colorName,
+                deviceCount: c.deviceCount || 16
+              }))
+            };
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("Fehler beim Laden aus localStorage:", e);
+      }
+
+      appState = {
+        supabaseUrl: "",
+        supabaseKey: "",
+        webhookUrl: "",
+        adminCc: "",
+        baseUrl: getDefaultBaseUrl(),
+        cases: INITIAL_CASES.map(c => ({
+          ...c,
+          status: "green",
+          lastCheck: null,
+          lastReporter: "",
+          openIssues: [],
+          history: [],
+          sollPhoto: null
+        }))
+      };
+      saveLocalState();
+    }
+
+    function saveLocalState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+      } catch (e) {
+        showToast("Lokaler Speicher voll (evtl. Soll-Foto zu groß).", "error");
+      }
+      renderSummary();
+      renderGrid();
+      updatePrintTable();
+    }
+
+    function isSupabaseConfigured() {
+      return Boolean(appState.supabaseUrl && appState.supabaseKey);
+    }
+
+    function updateSyncStatusBadge(stateOverride) {
+      const badge = document.getElementById("sync-badge");
+      const dot = document.getElementById("sync-dot");
+      const label = document.getElementById("sync-label");
+      const syncBtn = document.getElementById("manual-sync-btn");
+
+      if (!isSupabaseConfigured()) {
+        badge.className = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-slate-400";
+        label.textContent = "Lokal";
+        syncBtn.classList.add("hidden");
+        return;
+      }
+
+      syncBtn.classList.remove("hidden");
+
+      if (stateOverride === "syncing") {
+        badge.className = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse";
+        label.textContent = "Sync...";
+      } else if (stateOverride === "error") {
+        badge.className = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-rose-500";
+        label.textContent = "Offline-Fallback";
+      } else {
+        badge.className = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500";
+        label.textContent = "Cloud Live";
+      }
+    }
+
+    async function syncFromSupabase(showFeedback = false) {
+      if (!isSupabaseConfigured()) return;
+      updateSyncStatusBadge("syncing");
+
+      const baseUrl = appState.supabaseUrl.replace(/\/+$/, "");
+      try {
+        const res = await fetch(`${baseUrl}/rest/v1/ipad_koffer?select=*&order=id.asc`, {
+          method: "GET",
+          headers: {
+            "apikey": appState.supabaseKey,
+            "Authorization": `Bearer ${appState.supabaseKey}`,
+            "Content-Type": "application/json"
+          }
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = await res.json();
+
+        if (Array.isArray(rows) && rows.length > 0) {
+          rows.forEach(row => {
+            const idx = appState.cases.findIndex(c => c.id === row.id);
+            if (idx !== -1) {
+              appState.cases[idx] = {
+                ...appState.cases[idx],
+                room: row.room ?? appState.cases[idx].room,
+                location: row.location ?? appState.cases[idx].location,
+                colorName: row.color_name ?? appState.cases[idx].colorName,
+                responsible: row.responsible ?? appState.cases[idx].responsible,
+                email: row.email ?? appState.cases[idx].email,
+                deviceCount: row.device_count ?? appState.cases[idx].deviceCount,
+                status: row.status ?? appState.cases[idx].status,
+                lastCheck: row.last_check ?? appState.cases[idx].lastCheck,
+                lastReporter: row.last_reporter ?? appState.cases[idx].lastReporter,
+                openIssues: Array.isArray(row.open_issues) ? row.open_issues : [],
+                history: Array.isArray(row.history) ? row.history : []
+              };
+            }
+          });
+          saveLocalState();
+          if (activeCaseId) {
+            const current = appState.cases.find(c => c.id === activeCaseId);
+            if (current) {
+              renderOpenIssuesBox(current);
+              renderCaseHistory(current);
+            }
+          }
+        } else if (Array.isArray(rows) && rows.length === 0) {
+          // Table exists but is empty -> seed initial 18 rows
+          await pushAllCasesToSupabase();
+        }
+
+        updateSyncStatusBadge("ok");
+        if (showFeedback) showToast("Live-Daten aus Supabase aktualisiert!", "success");
+      } catch (err) {
+        console.error("Supabase GET Fehler:", err);
+        updateSyncStatusBadge("error");
+        if (showFeedback) showToast("Supabase nicht erreichbar (lokaler Speicher aktiv).", "error");
+      }
+    }
+
+    async function pushSingleCaseToSupabase(c) {
+      if (!isSupabaseConfigured() || !c) return;
+      updateSyncStatusBadge("syncing");
+
+      const baseUrl = appState.supabaseUrl.replace(/\/+$/, "");
+      const payload = {
+        id: c.id,
+        room: c.room,
+        location: c.location,
+        color_name: c.colorName,
+        responsible: c.responsible,
+        email: c.email,
+        device_count: c.deviceCount,
+        status: c.status,
+        last_check: c.lastCheck,
+        last_reporter: c.lastReporter,
+        open_issues: c.openIssues || [],
+        history: c.history || [],
+        updated_at: new Date().toISOString()
+      };
+
+      try {
+        const res = await fetch(`${baseUrl}/rest/v1/ipad_koffer`, {
+          method: "POST",
+          headers: {
+            "apikey": appState.supabaseKey,
+            "Authorization": `Bearer ${appState.supabaseKey}`,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates"
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        updateSyncStatusBadge("ok");
+      } catch (err) {
+        console.error("Supabase UPSERT Fehler:", err);
+        updateSyncStatusBadge("error");
+        showToast("Cloud-Sync fehlgeschlagen – lokal gespeichert.", "error");
+      }
+    }
+
+    async function pushAllCasesToSupabase() {
+      if (!isSupabaseConfigured()) return;
+      updateSyncStatusBadge("syncing");
+
+      const baseUrl = appState.supabaseUrl.replace(/\/+$/, "");
+      const rows = appState.cases.map(c => ({
+        id: c.id,
+        room: c.room,
+        location: c.location,
+        color_name: c.colorName,
+        responsible: c.responsible,
+        email: c.email,
+        device_count: c.deviceCount,
+        status: c.status,
+        last_check: c.lastCheck,
+        last_reporter: c.lastReporter,
+        open_issues: c.openIssues || [],
+        history: c.history || [],
+        updated_at: new Date().toISOString()
+      }));
+
+      try {
+        const res = await fetch(`${baseUrl}/rest/v1/ipad_koffer`, {
+          method: "POST",
+          headers: {
+            "apikey": appState.supabaseKey,
+            "Authorization": `Bearer ${appState.supabaseKey}`,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates"
+          },
+          body: JSON.stringify(rows)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        updateSyncStatusBadge("ok");
+      } catch (err) {
+        console.error("Supabase Bulk-UPSERT Fehler:", err);
+        updateSyncStatusBadge("error");
+      }
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+    function formatDateTime(isoString) {
+      if (!isoString) return "Noch kein Check";
+      try {
+        const d = new Date(isoString);
+        return d.toLocaleDateString("de-DE", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric"
+        }) + ", " + d.toLocaleTimeString("de-DE", {
+          hour: "2-digit",
+          minute: "2-digit"
+        }) + " Uhr";
+      } catch {
+        return isoString;
+      }
+    }
+
+    function padTwo(num) {
+      return String(num).padStart(2, "0");
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function getStatusMeta(status) {
+      if (status === "red") {
+        return {
+          label: "Mangel / Fehlt",
+          dotClass: "bg-rose-500",
+          pillClass: "bg-rose-100 text-rose-800 border-rose-200",
+          borderClass: "border-rose-300 ring-1 ring-rose-500/10"
+        };
+      }
+      if (status === "yellow") {
+        return {
+          label: "Unordentlich",
+          dotClass: "bg-amber-500",
+          pillClass: "bg-amber-100 text-amber-800 border-amber-200",
+          borderClass: "border-amber-300 ring-1 ring-amber-500/10"
+        };
+      }
+      return {
+        label: "Alles OK",
+        dotClass: "bg-emerald-500",
+        pillClass: "bg-emerald-100 text-emerald-800 border-emerald-200",
+        borderClass: "border-slate-200 hover:border-slate-300"
+      };
+    }
+
+    function showToast(message, type = "info") {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+      const bg = type === "error" ? "bg-rose-900 text-white" : type === "success" ? "bg-emerald-900 text-white" : "bg-slate-900 text-white";
+      toast.className = `${bg} px-4 py-3 rounded-xl shadow-lg text-xs sm:text-sm font-medium flex items-center justify-between gap-2 pointer-events-auto transition-all duration-300`;
+      toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateY(6px)";
+        setTimeout(() => toast.remove(), 300);
+      }, 3400);
+    }
+
+    // =========================================================================
+    // DASHBOARD RENDERING & FILTERING
+    // =========================================================================
+    function renderSummary() {
+      document.getElementById("count-green").textContent = appState.cases.filter(c => c.status === "green").length;
+      document.getElementById("count-yellow").textContent = appState.cases.filter(c => c.status === "yellow").length;
+      document.getElementById("count-red").textContent = appState.cases.filter(c => c.status === "red").length;
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll(".filter-btn").forEach(btn => {
+        const isActive = btn.getAttribute("data-filter") === filter;
+        if (isActive) {
+          btn.className = "filter-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-900 text-white whitespace-nowrap transition";
+        } else {
+          btn.className = "filter-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 whitespace-nowrap transition";
+        }
+      });
+      renderGrid();
+    }
+
+    function resetFilters() {
+      document.getElementById("search-input").value = "";
+      setFilter("all");
+    }
+
+    function showAllCasesView() {
+      closeCaseModal();
+      isDeepLinkMode = false;
+      document.getElementById("deeplink-banner").classList.add("hidden");
+      resetFilters();
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById("koffer-grid");
+      const emptyState = document.getElementById("empty-state");
+      const query = (document.getElementById("search-input").value || "").trim().toLowerCase();
+
+      const filtered = appState.cases.filter(c => {
+        if (currentFilter === "green" && c.status !== "green") return false;
+        if (currentFilter === "yellow" && c.status !== "yellow") return false;
+        if (currentFilter === "red" && c.status !== "red") return false;
+        if (currentFilter === "issues" && c.status === "green") return false;
+
+        if (query) {
+          const haystack = `koffer ${c.id} ${c.room} ${c.location} ${c.responsible} ${c.colorName}`.toLowerCase();
+          if (!haystack.includes(query)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = "";
+        emptyState.classList.remove("hidden");
+        return;
+      }
+
+      emptyState.classList.add("hidden");
+
+      grid.innerHTML = filtered.map(c => {
+        const meta = getStatusMeta(c.status);
+        const colorMeta = getColorMeta(c.colorName);
+        const hasOpenIssues = c.openIssues && c.openIssues.length > 0;
+        const latestIssue = hasOpenIssues ? c.openIssues[0] : null;
+        const isUnassignedLocation = c.location === "Standort offen";
+
+        return `
+          <article
+            onclick="openCaseModal(${c.id})"
+            role="button"
+            tabindex="0"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCaseModal(${c.id});}"
+            class="bg-white border ${meta.borderClass} rounded-2xl p-4 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between gap-3 active:scale-[0.99]"
+          >
+            <div>
+              <!-- Top Row: Koffer Badge, Color Badge & Status Pill -->
+              <div class="flex items-center justify-between gap-1.5 mb-2 flex-wrap">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-slate-900 text-base">Koffer ${c.id}</span>
+                  <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">${escapeHtml(c.room)}</span>
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${colorMeta.badgeBg} ${colorMeta.badgeText}" title="Farb-Code der Hüllen">
+                    <span class="w-2 h-2 rounded-full ${colorMeta.dot}"></span>
+                    ${escapeHtml(colorMeta.name)}
+                  </span>
+                </div>
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${meta.pillClass}">
+                  <span class="w-2 h-2 rounded-full ${meta.dotClass}"></span>
+                  ${meta.label}
+                </span>
+              </div>
+
+              <!-- Location -->
+              <div class="text-sm font-medium ${isUnassignedLocation ? 'text-slate-400 italic' : 'text-slate-800'}">
+                ${escapeHtml(c.location)}
+              </div>
+
+              <!-- Duplicate Prevention Preview Banner on Card -->
+              ${hasOpenIssues ? `
+                <div class="mt-2.5 p-2.5 rounded-xl bg-rose-50 border border-rose-200/80 text-xs text-rose-900">
+                  <div class="font-semibold flex items-center justify-between gap-1">
+                    <span>Offene Meldung (${c.openIssues.length}):</span>
+                    <span class="text-[10px] text-rose-600 font-normal">${escapeHtml(latestIssue.dateShort)}</span>
+                  </div>
+                  <p class="mt-0.5 line-clamp-2 text-rose-800">${escapeHtml(latestIssue.text)}</p>
+                </div>
+              ` : ""}
+            </div>
+
+            <!-- Footer Meta -->
+            <div class="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+              <span class="truncate">
+                ${c.responsible ? `Pate: <strong class="font-medium text-slate-700">${escapeHtml(c.responsible)}</strong>` : `<span class="text-slate-400">Kein Pate hinterlegt</span>`}
+              </span>
+              <span class="shrink-0 text-slate-400">
+                ${c.lastCheck ? formatDateTime(c.lastCheck).split(",")[0] : "Ungeprüft"}
+              </span>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    // =========================================================================
+    // CASE DETAIL & CHECK-IN MODAL
+    // =========================================================================
+    function openCaseModal(caseId) {
+      activeCaseId = caseId;
+      const c = appState.cases.find(item => item.id === caseId);
+      if (!c) return;
+
+      try {
+        const url = new URL(window.location);
+        url.searchParams.set("koffer", caseId);
+        window.history.replaceState({}, "", url);
+      } catch (e) {}
+
+      const colorMeta = getColorMeta(c.colorName);
+
+      // Populate Header
+      document.getElementById("modal-koffer-badge").textContent = `Koffer ${c.id}`;
+      const colorBadge = document.getElementById("modal-color-badge");
+      colorBadge.className = `inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorMeta.badgeBg} ${colorMeta.badgeText}`;
+      colorBadge.innerHTML = `<span class="w-2 h-2 rounded-full ${colorMeta.dot}"></span>Farbcode: ${escapeHtml(colorMeta.name)}`;
+
+      document.getElementById("modal-room-text").textContent = `Raum ${c.room}`;
+      document.getElementById("modal-location-title").textContent = c.location;
+
+      const meta = getStatusMeta(c.status);
+      const pill = document.getElementById("modal-status-pill");
+      pill.className = `px-2.5 py-0.5 rounded-full text-xs font-semibold border ${meta.pillClass}`;
+      pill.textContent = meta.label;
+
+      const respLine = document.getElementById("modal-responsible-line");
+      if (c.responsible) {
+        respLine.textContent = `Koffer-Pate: ${c.responsible}${c.email ? ` (${c.email})` : ""}`;
+      } else {
+        respLine.textContent = "Koffer-Pate: Noch nicht hinterlegt (unter 'Setup' eintragbar)";
+      }
+
+      // Soll-Zustand Info
+      const kCode = `K${padTwo(c.id)}`;
+      document.getElementById("soll-device-range").textContent = `Alle ${c.deviceCount} iPads vorhanden (${kCode}-01 bis ${kCode}-${padTwo(c.deviceCount)})`;
+      document.getElementById("soll-color-check").textContent = `Alle iPad-Hüllen haben den Farbcode „${colorMeta.name}“`;
+
+      renderSollPhoto(c.sollPhoto);
+      renderOpenIssuesBox(c);
+
+      // Reset Form
+      document.getElementById("check-form").reset();
+      document.getElementById("check-form").classList.remove("hidden");
+      document.getElementById("mailto-action-box").classList.add("hidden");
+      onStatusRadioChange("green");
+
+      renderCaseHistory(c);
+
+      document.getElementById("case-modal").classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeCaseModal() {
+      document.getElementById("case-modal").classList.add("hidden");
+      document.body.style.overflow = "";
+      activeCaseId = null;
+
+      try {
+        const url = new URL(window.location);
+        url.searchParams.delete("koffer");
+        window.history.replaceState({}, "", url);
+      } catch (e) {}
+    }
+
+    function renderOpenIssuesBox(c) {
+      const box = document.getElementById("open-issues-box");
+      const list = document.getElementById("open-issues-list");
+
+      if (!c.openIssues || c.openIssues.length === 0) {
+        box.classList.add("hidden");
+        list.innerHTML = "";
+        return;
+      }
+
+      box.classList.remove("hidden");
+      list.innerHTML = c.openIssues.map(issue => `
+        <li class="bg-white border border-rose-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div class="text-xs">
+            <div class="font-semibold text-slate-900">${escapeHtml(issue.text)}</div>
+            <div class="text-slate-500 mt-0.5">
+              Gemeldet am ${escapeHtml(issue.timestamp)}${issue.reporter ? ` von ${escapeHtml(issue.reporter)}` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            onclick="resolveIssue('${issue.id}')"
+            class="self-start sm:self-center shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition shadow-2xs"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span>Behoben / Erledigt</span>
+          </button>
+        </li>
+      `).join("");
+    }
+
+    async function resolveIssue(issueId) {
+      const c = appState.cases.find(item => item.id === activeCaseId);
+      if (!c) return;
+
+      const resolvedItem = c.openIssues.find(i => i.id === issueId);
+      c.openIssues = c.openIssues.filter(i => i.id !== issueId);
+
+      if (resolvedItem) {
+        c.history.unshift({
+          timestamp: formatDateTime(new Date().toISOString()),
+          timing: "Paten-Abschluss",
+          status: c.openIssues.length === 0 ? "green" : c.status,
+          note: `Behoben: "${resolvedItem.text}"`,
+          reporter: "Koffer-Pate"
+        });
+      }
+
+      if (c.openIssues.length === 0) {
+        c.status = "green";
+        c.lastCheck = new Date().toISOString();
+      }
+
+      saveLocalState();
+      await pushSingleCaseToSupabase(c);
+      openCaseModal(c.id);
+      showToast("Mangel als behoben markiert!", "success");
+    }
+
+    function renderSollPhoto(photoDataUrl) {
+      const container = document.getElementById("soll-photo-preview");
+      if (photoDataUrl) {
+        container.innerHTML = `<img src="${photoDataUrl}" alt="Soll-Zustand Koffer" class="w-full h-full object-cover" />`;
+      } else {
+        container.innerHTML = `<span class="text-[11px] text-slate-400">Noch kein Soll-Foto hinterlegt</span>`;
+      }
+    }
+
+    function handlePhotoUpload(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file || !activeCaseId) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement("canvas");
+          const maxDim = 640;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.72);
+
+          const c = appState.cases.find(item => item.id === activeCaseId);
+          if (c) {
+            c.sollPhoto = compressedDataUrl;
+            saveLocalState();
+            renderSollPhoto(compressedDataUrl);
+            showToast("Soll-Foto für Koffer " + c.id + " gespeichert.", "success");
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function onStatusRadioChange(statusVal) {
+      const notice = document.getElementById("automation-notice");
+      const noticeText = document.getElementById("automation-notice-text");
+      const wrapper = document.getElementById("issue-details-wrapper");
+      const c = appState.cases.find(item => item.id === activeCaseId);
+
+      if (statusVal === "green") {
+        notice.classList.add("hidden");
+        wrapper.className = "bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3 transition";
+      } else {
+        notice.classList.remove("hidden");
+        wrapper.className = statusVal === "red"
+          ? "bg-rose-50/60 border border-rose-200 rounded-2xl p-3.5 space-y-3 transition"
+          : "bg-amber-50/60 border border-amber-200 rounded-2xl p-3.5 space-y-3 transition";
+
+        const recipient = c && c.responsible ? c.responsible : "den Koffer-Paten";
+        if (appState.webhookUrl) {
+          noticeText.textContent = `Automatisierung aktiv: Sendet diese Meldung direkt per Power Automate Webhook an ${recipient}.`;
+        } else {
+          noticeText.textContent = `Speichert den Mangel sichtbar für alle und bereitet eine 1-Klick-E-Mail an ${recipient} vor.`;
+        }
+      }
+    }
+
+    function appendQuickChip(text) {
+      const input = document.getElementById("issue-note");
+      input.value = (input.value ? input.value.trim() + " " : "") + text;
+      input.focus();
+    }
+
+    async function submitCheckForm(event) {
+      event.preventDefault();
+      if (!activeCaseId) return;
+
+      const c = appState.cases.find(item => item.id === activeCaseId);
+      if (!c) return;
+
+      const formData = new FormData(event.target);
+      const timing = formData.get("timing") || "Kontrolle";
+      const status = formData.get("status") || "green";
+      const noteInput = document.getElementById("issue-note").value.trim();
+      const reporter = document.getElementById("reporter-name").value.trim();
+
+      const nowIso = new Date().toISOString();
+      const formattedNow = formatDateTime(nowIso);
+      const dateShort = new Date(nowIso).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+
+      c.lastCheck = nowIso;
+      c.lastReporter = reporter;
+
+      if (status === "green" && c.openIssues.length > 0) {
+        c.status = c.openIssues.some(i => i.severity === "red") ? "red" : "yellow";
+      } else {
+        c.status = status;
+      }
+
+      const defaultNote = status === "green"
+        ? "Alles vollständig und ordentlich."
+        : status === "yellow"
+          ? "Koffer unordentlich / Kabel nicht eingesteckt."
+          : "Mangel / Gerät fehlt gemeldet.";
+
+      const finalNote = noteInput || defaultNote;
+
+      if (status === "yellow" || status === "red") {
+        c.openIssues.unshift({
+          id: "iss_" + Date.now(),
+          severity: status,
+          text: finalNote,
+          timestamp: formattedNow,
+          dateShort: dateShort,
+          reporter: reporter
+        });
+      }
+
+      c.history.unshift({
+        timestamp: formattedNow,
+        timing: timing,
+        status: status,
+        note: finalNote,
+        reporter: reporter
+      });
+      if (c.history.length > 20) c.history.length = 20;
+
+      saveLocalState();
+      await pushSingleCaseToSupabase(c);
+
+      // Update Modal UI
+      const meta = getStatusMeta(c.status);
+      const pill = document.getElementById("modal-status-pill");
+      pill.className = `px-2.5 py-0.5 rounded-full text-xs font-semibold border ${meta.pillClass}`;
+      pill.textContent = meta.label;
+      renderOpenIssuesBox(c);
+      renderCaseHistory(c);
+
+      // Handle Power Automate Webhook & Mailto Fallback on Yellow/Red
+      if (status === "yellow" || status === "red") {
+        const webhookPayload = {
+          koffer_id: c.id,
+          koffer_name: `Koffer ${c.id}`,
+          raum: c.room,
+          standort: c.location,
+          farbcode: c.colorName,
+          status: status === "red" ? "Rot (Mangel / Fehlt)" : "Gelb (Unordentlich)",
+          zeitpunkt: timing,
+          mangel: finalNote,
+          melder: reporter || "Nicht angegeben",
+          pate_name: c.responsible || "Nicht zugewiesen",
+          pate_email: c.email || "",
+          admin_cc: appState.adminCc || "",
+          zeitstempel: formattedNow
+        };
+
+        if (appState.webhookUrl) {
+          try {
+            await fetch(appState.webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(webhookPayload)
+            });
+            showToast("Check gespeichert & via Power Automate gemeldet!", "success");
+          } catch (err) {
+            console.warn("Webhook-Aufruf Fehler:", err);
+            showToast("Gespeichert! Webhook konnte nicht direkt bestätigt werden.", "info");
+          }
+        }
+
+        prepareMailtoBox(c, webhookPayload);
+      } else {
+        showToast(`Check für Koffer ${c.id} gespeichert!`, "success");
+        if (!isDeepLinkMode) {
+          setTimeout(() => closeCaseModal(), 650);
+        }
+      }
+    }
+
+    function prepareMailtoBox(c, payload) {
+      const formEl = document.getElementById("check-form");
+      const mailBox = document.getElementById("mailto-action-box");
+      const mailLink = document.getElementById("mailto-trigger-link");
+      const desc = document.getElementById("mailto-recipient-desc");
+
+      formEl.classList.add("hidden");
+      mailBox.classList.remove("hidden");
+
+      const toEmail = c.email || appState.adminCc || "";
+      const ccPart = (c.email && appState.adminCc) ? `&cc=${encodeURIComponent(appState.adminCc)}` : "";
+      const subject = `[iPad-Koffer ${c.id} – ${c.colorName}] ${payload.status} (${c.location}, Raum ${c.room})`;
+      const body = [
+        `Hallo${c.responsible ? " " + c.responsible : ""},`,
+        ``,
+        `bei der Kontrolle von Koffer ${c.id} (Farbcode: ${c.colorName}, Standort: ${c.location}, Raum ${c.room}) wurde Folgendes gemeldet:`,
+        ``,
+        `Status: ${payload.status}`,
+        `Zeitpunkt: ${payload.zeitpunkt}`,
+        `Mangel / Hinweis: ${payload.mangel}`,
+        `Gemeldet von: ${payload.melder} (${payload.zeitstempel})`,
+        ``,
+        `Direktlink zum Abhaken nach Behebung: ${getCaseDirectUrl(c.id)}`
+      ].join("\n");
+
+      mailLink.href = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}${ccPart}&body=${encodeURIComponent(body)}`;
+
+      if (toEmail) {
+        desc.textContent = `Empfänger: ${c.responsible ? c.responsible + " (" + toEmail + ")" : toEmail}`;
+      } else {
+        desc.textContent = "Hinweis: Hinterlege unter 'Zuständigkeiten & Setup' die E-Mail des Koffer-Paten, damit sie hier automatisch eingesetzt wird.";
+      }
+    }
+
+    function renderCaseHistory(c) {
+      const list = document.getElementById("case-history-list");
+      if (!c.history || c.history.length === 0) {
+        list.innerHTML = `<li class="text-slate-400 italic">Noch keine Kontrollen protokolliert.</li>`;
+        return;
+      }
+
+      list.innerHTML = c.history.map(entry => {
+        const dot = entry.status === "red" ? "bg-rose-500" : entry.status === "yellow" ? "bg-amber-500" : "bg-emerald-500";
+        return `
+          <li class="flex items-start gap-2.5 bg-slate-50 rounded-xl p-2.5 border border-slate-100">
+            <span class="w-2 h-2 rounded-full ${dot} mt-1.5 shrink-0"></span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                <span class="font-medium text-slate-700">${escapeHtml(entry.timing)}${entry.reporter ? ` · ${escapeHtml(entry.reporter)}` : ""}</span>
+                <span>${escapeHtml(entry.timestamp)}</span>
+              </div>
+              <p class="text-slate-700 mt-0.5">${escapeHtml(entry.note)}</p>
+            </div>
+          </li>
+        `;
+      }).join("");
+    }
+
+    function getCaseDirectUrl(caseId) {
+      const base = (appState.baseUrl || getDefaultBaseUrl()).trim();
+      try {
+        const url = new URL(base);
+        url.searchParams.set("koffer", caseId);
+        return url.toString();
+      } catch {
+        const sep = base.includes("?") ? "&" : "?";
+        return `${base}${sep}koffer=${caseId}`;
+      }
+    }
+
+    function copyCaseQrLink() {
+      if (!activeCaseId) return;
+      copyTextToClipboard(getCaseDirectUrl(activeCaseId), `QR-Direktlink für Koffer ${activeCaseId} kopiert!`);
+    }
+
+    function copyTextToClipboard(text, successMsg) {
+      const tempInput = document.createElement("textarea");
+      tempInput.value = text;
+      tempInput.style.position = "fixed";
+      tempInput.style.opacity = "0";
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      try {
+        document.execCommand("copy");
+        showToast(successMsg, "success");
+      } catch (e) {
+        showToast("Kopieren fehlgeschlagen.", "error");
+      }
+      document.body.removeChild(tempInput);
+    }
+
+    // =========================================================================
+    // 18 QR-CODE COVER SHEETS MODAL & DIN A4 PRINTING
+    // =========================================================================
+    function openQrCoversModal() {
+      const input = document.getElementById("qr-base-url-quick");
+      input.value = appState.baseUrl || getDefaultBaseUrl();
+      updateQrPreviewList();
+      document.getElementById("qr-covers-modal").classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeQrCoversModal() {
+      document.getElementById("qr-covers-modal").classList.add("hidden");
+      document.body.style.overflow = "";
+    }
+
+    function updateQrPreviewList() {
+      const quickVal = document.getElementById("qr-base-url-quick").value.trim();
+      if (quickVal) {
+        appState.baseUrl = quickVal;
+        saveLocalState();
+      }
+
+      const grid = document.getElementById("qr-preview-grid");
+      grid.innerHTML = appState.cases.map(c => {
+        const colorMeta = getColorMeta(c.colorName);
+        return `
+          <div class="border border-slate-200 rounded-xl p-2.5 bg-slate-50/70 flex flex-col items-center text-center">
+            <div class="flex items-center gap-1 text-xs font-bold text-slate-900">
+              <span>Koffer ${c.id}</span>
+              <span class="w-2.5 h-2.5 rounded-full ${colorMeta.dot}" title="Farbcode: ${colorMeta.name}"></span>
+            </div>
+            <div class="text-[10px] text-slate-500 truncate w-full mb-2">${escapeHtml(c.room)} · ${escapeHtml(c.location)}</div>
+            <div id="preview-qr-${c.id}" class="qr-box bg-white p-1.5 rounded-lg border border-slate-200"></div>
+            <div class="text-[10px] font-medium text-slate-600 mt-1.5">Farbcode: ${escapeHtml(colorMeta.name)}</div>
+          </div>
+        `;
+      }).join("");
+
+      // Generate crisp QR codes via QRCode.js
+      appState.cases.forEach(c => {
+        const el = document.getElementById(`preview-qr-${c.id}`);
+        if (el && typeof QRCode !== "undefined") {
+          el.innerHTML = "";
+          new QRCode(el, {
+            text: getCaseDirectUrl(c.id),
+            width: 84,
+            height: 84,
+            colorDark: "#0f172a",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        }
+      });
+    }
+
+    function buildPrintCoverSheets() {
+      const container = document.getElementById("print-covers-section");
+      container.innerHTML = appState.cases.map(c => {
+        const colorMeta = getColorMeta(c.colorName);
+        const kCode = `K${padTwo(c.id)}`;
+        const directUrl = getCaseDirectUrl(c.id);
+
+        return `
+          <div class="a4-cover-sheet">
+            <!-- Top Header Bar -->
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #0f172a; padding-bottom:6mm; margin-bottom:5mm;">
+                <div>
+                  <div style="font-size:11pt; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#475569;">
+                    Medienausstattung · Kofferdeckel-Info
+                  </div>
+                  <h1 style="font-size:28pt; font-weight:800; margin:2mm 0 1mm 0; line-height:1.1; color:#0f172a;">
+                    Koffer ${c.id} <span style="font-size:18pt; font-weight:600; color:#334155;">(Raum ${escapeHtml(c.room)})</span>
+                  </h1>
+                  <div style="font-size:14pt; font-weight:600; color:#1e293b;">
+                    Standort: ${escapeHtml(c.location)}
+                  </div>
+                </div>
+
+                <!-- Color Code Badge -->
+                <div style="border:2px solid ${colorMeta.hex}; border-radius:12px; padding:4mm 6mm; text-align:center; background-color:#f8fafc;">
+                  <div style="width:14mm; height:14mm; border-radius:9999px; background-color:${colorMeta.hex}; margin:0 auto 2mm auto;"></div>
+                  <div style="font-size:11pt; font-weight:800; color:#0f172a;">Farbcode: ${escapeHtml(colorMeta.name)}</div>
+                  <div style="font-size:8.5pt; color:#475569;">Hüllen-Markierung</div>
+                </div>
+              </div>
+
+              <!-- Meta Row: Soll-Bestand & Pate -->
+              <div style="display:flex; justify-content:space-between; gap:4mm; margin-bottom:5mm; font-size:10.5pt; background:#f1f5f9; padding:3.5mm 4.5mm; border-radius:8px;">
+                <div>
+                  <strong>Soll-Bestand:</strong> ${c.deviceCount} iPads (${kCode}-01 bis ${kCode}-${padTwo(c.deviceCount)})
+                </div>
+                <div>
+                  <strong>Koffer-Pate:</strong> ${c.responsible ? escapeHtml(c.responsible) : "______________________"}
+                </div>
+              </div>
+
+              <!-- Soll-Zustand Photo Box -->
+              <div style="border:2px dashed #64748b; border-radius:10px; height:86mm; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:5mm; margin-bottom:5mm; background:#fafafa;">
+                ${c.sollPhoto
+                  ? `<img src="${c.sollPhoto}" style="max-height:76mm; max-width:100%; object-fit:contain; border-radius:6px;" />`
+                  : `<div style="font-size:13pt; font-weight:700; color:#475569; margin-bottom:2mm;">Hier laminiertes Soll-Zustand-Foto einkleben</div>
+                     <div style="font-size:9.5pt; color:#64748b;">(Zeigt die korrekte Sortierung der ${c.deviceCount} iPads &amp; Ladekabel im Koffer)</div>`
+                }
+              </div>
+            </div>
+
+            <!-- Bottom Section: 3 Golden Rules + QR Code -->
+            <div style="display:flex; justify-content:space-between; align-items:stretch; gap:6mm; border-top:2px solid #cbd5e1; padding-top:5mm;">
+              <!-- 3 Golden Rules -->
+              <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:12pt; font-weight:800; color:#0f172a; margin-bottom:3mm;">
+                  Die 3 goldenen Spielregeln:
+                </div>
+                <ol style="margin:0; padding-left:5.5mm; font-size:10.5pt; line-height:1.45; color:#1e293b;">
+                  <li style="margin-bottom:2mm;"><strong>Nur mit Untis-Buchung mitnehmen:</strong> Koffer vor der Stunde in der Untis-App (als Raum) reservieren.</li>
+                  <li style="margin-bottom:2mm;"><strong>Vor dem Austeilen kurz prüfen:</strong> Fehlt ein iPad oder ist ein Kabel defekt? Sofort QR-Code scannen &amp; melden!</li>
+                  <li><strong>Nach der Stunde ordentlich zurückstellen:</strong> Alle ${c.deviceCount} iPads mit Farbcode <strong>${escapeHtml(colorMeta.name)}</strong> einsortieren &amp; Ladekabel einstecken.</li>
+                </ol>
+              </div>
+
+              <!-- QR Code Box -->
+              <div style="width:56mm; border:2px solid #0f172a; border-radius:10px; padding:3.5mm; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff;">
+                <div style="font-size:9.5pt; font-weight:800; color:#0f172a; margin-bottom:2mm;">Status &amp; Mängel melden:</div>
+                <div id="print-qr-${c.id}" class="qr-box" style="margin:1mm auto;"></div>
+                <div style="font-size:7pt; color:#475569; word-break:break-all; margin-top:2mm; line-height:1.2;">
+                  ${escapeHtml(directUrl)}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      // Render crisp QR codes into each print sheet
+      appState.cases.forEach(c => {
+        const el = document.getElementById(`print-qr-${c.id}`);
+        if (el && typeof QRCode !== "undefined") {
+          el.innerHTML = "";
+          new QRCode(el, {
+            text: getCaseDirectUrl(c.id),
+            width: 145,
+            height: 145,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        }
+      });
+    }
+
+    function printOverviewA4() {
+      updatePrintTable();
+      document.body.classList.remove("print-mode-covers");
+      document.body.classList.add("print-mode-overview");
+      window.print();
+    }
+
+    function printCoverSheetsA4() {
+      buildPrintCoverSheets();
+      document.body.classList.remove("print-mode-overview");
+      document.body.classList.add("print-mode-covers");
+      // Slight delay ensures QR canvases are painted before print dialog opens
+      setTimeout(() => {
+        window.print();
+      }, 150);
+    }
+
+    // =========================================================================
+    // SETTINGS & MASTER DATA MODAL
+    // =========================================================================
+    function openSettingsModal() {
+      document.getElementById("supabase-url-input").value = appState.supabaseUrl || "";
+      document.getElementById("supabase-key-input").value = appState.supabaseKey || "";
+      document.getElementById("webhook-url-input").value = appState.webhookUrl || "";
+      document.getElementById("admin-cc-input").value = appState.adminCc || "";
+      document.getElementById("base-url-input").value = appState.baseUrl || getDefaultBaseUrl();
+
+      const tbody = document.getElementById("settings-table-body");
+      tbody.innerHTML = appState.cases.map(c => {
+        const colorOptions = CASE_COLORS.map(col =>
+          `<option value="${col.name}" ${c.colorName === col.name ? "selected" : ""}>${col.name}</option>`
+        ).join("");
+
+        return `
+          <tr>
+            <td class="py-2 px-3 font-bold text-slate-900 whitespace-nowrap">Koffer ${c.id}</td>
+            <td class="py-2 px-3 text-slate-600 whitespace-nowrap">
+              <input
+                type="text"
+                data-case-id="${c.id}"
+                data-field="room"
+                value="${escapeHtml(c.room)}"
+                class="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              />
+            </td>
+            <td class="py-2 px-3">
+              <input
+                type="text"
+                data-case-id="${c.id}"
+                data-field="location"
+                value="${escapeHtml(c.location)}"
+                class="w-full min-w-[140px] px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              />
+            </td>
+            <td class="py-2 px-3">
+              <select
+                data-case-id="${c.id}"
+                data-field="colorName"
+                class="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-amber-500"
+              >
+                ${colorOptions}
+              </select>
+            </td>
+            <td class="py-2 px-3">
+              <input
+                type="number"
+                min="1"
+                max="40"
+                data-case-id="${c.id}"
+                data-field="deviceCount"
+                value="${c.deviceCount || 16}"
+                class="w-16 px-2 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              />
+            </td>
+            <td class="py-2 px-3">
+              <input
+                type="text"
+                data-case-id="${c.id}"
+                data-field="responsible"
+                placeholder="Name / Kürzel"
+                value="${escapeHtml(c.responsible)}"
+                class="w-full min-w-[125px] px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              />
+            </td>
+            <td class="py-2 px-3">
+              <input
+                type="email"
+                data-case-id="${c.id}"
+                data-field="email"
+                placeholder="name@schule.de"
+                value="${escapeHtml(c.email)}"
+                class="w-full min-w-[155px] px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              />
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      document.getElementById("settings-modal").classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeSettingsModal() {
+      document.getElementById("settings-modal").classList.add("hidden");
+      document.body.style.overflow = "";
+    }
+
+    function copySupabaseSql() {
+      const sql = document.getElementById("supabase-sql-code").textContent;
+      copyTextToClipboard(sql, "SQL-Befehl für Supabase kopiert!");
+    }
+
+    async function saveSettings() {
+      appState.supabaseUrl = document.getElementById("supabase-url-input").value.trim();
+      appState.supabaseKey = document.getElementById("supabase-key-input").value.trim();
+      appState.webhookUrl = document.getElementById("webhook-url-input").value.trim();
+      appState.adminCc = document.getElementById("admin-cc-input").value.trim();
+      appState.baseUrl = document.getElementById("base-url-input").value.trim() || getDefaultBaseUrl();
+
+      document.querySelectorAll("#settings-table-body input, #settings-table-body select").forEach(el => {
+        const id = parseInt(el.getAttribute("data-case-id"), 10);
+        const field = el.getAttribute("data-field");
+        const c = appState.cases.find(item => item.id === id);
+        if (c && field) {
+          if (field === "deviceCount") {
+            c[field] = parseInt(el.value, 10) || 16;
+          } else {
+            c[field] = el.value.trim();
+          }
+        }
+      });
+
+      saveLocalState();
+      updateSyncStatusBadge();
+      closeSettingsModal();
+
+      if (isSupabaseConfigured()) {
+        await pushAllCasesToSupabase();
+        showToast("Einstellungen gespeichert & mit Supabase synchronisiert!", "success");
+      } else {
+        showToast("Stammdaten & Einstellungen lokal gespeichert!", "success");
+      }
+    }
+
+    function resetDemoData() {
+      localStorage.removeItem(STORAGE_KEY);
+      loadState();
+      updateSyncStatusBadge();
+      closeSettingsModal();
+      showToast("Lokale Daten wurden auf Werkszustand zurückgesetzt.", "info");
+    }
+
+    // =========================================================================
+    // PRINT TABLE SYNC (MODE A: STATUS OVERVIEW)
+    // =========================================================================
+    function updatePrintTable() {
+      const printDate = document.getElementById("print-date");
+      if (printDate) {
+        printDate.textContent = "Stand: " + formatDateTime(new Date().toISOString());
+      }
+
+      const tbody = document.getElementById("print-table-body");
+      if (!tbody) return;
+
+      tbody.innerHTML = appState.cases.map(c => {
+        const statusText = c.status === "red" ? "ROT (Mangel)" : c.status === "yellow" ? "GELB (Unordentlich)" : "GRÜN (OK)";
+        const issuesText = (c.openIssues && c.openIssues.length > 0)
+          ? c.openIssues.map(i => `• ${i.text} (${i.dateShort})`).join("<br/>")
+          : (c.lastCheck ? `Letzter Check: ${formatDateTime(c.lastCheck)}` : "Keine offenen Mängel");
+
+        return `
+          <tr>
+            <td><strong>Koffer ${c.id}</strong></td>
+            <td>${escapeHtml(c.colorName)}</td>
+            <td>Raum ${escapeHtml(c.room)}<br/>${escapeHtml(c.location)}</td>
+            <td>${c.responsible ? escapeHtml(c.responsible) : "–"}</td>
+            <td><strong>${statusText}</strong></td>
+            <td>${issuesText}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    window.addEventListener("DOMContentLoaded", initApp);
+  </script>
+</body>
+</html>
